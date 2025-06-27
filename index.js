@@ -10,7 +10,7 @@ app.post('/slack/events', async (req, res) => {
   const { type, challenge } = req.body;
 
   if (type === 'url_verification') {
-    return res.send(challenge);
+    return res.status(200).json({ challenge });
   }
 
   try {
