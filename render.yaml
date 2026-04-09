@@ -6,3 +6,8 @@ services:
     buildCommand: "npm install"
     startCommand: "npm start"
     autoDeploy: true
+    envVars:
+      - key: ZAPIER_WEBHOOK_URL
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
