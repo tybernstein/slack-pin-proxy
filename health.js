@@ -1,70 +1,63 @@
 const os = require('os');
 
+const VERSION = process.env.APP_VERSION || 'unknown';
+const ENVIRONMENT = process.env.NODE_ENV || 'development';
+
 function getSystemHealth() {
-  const uptime = process.uptime();
   const memUsage = process.memoryUsage();
-  const cpuUsage = process.cpuUsage();
 
   return {
     status: 'healthy',
+    version: VERSION,
+    environment: ENVIRONMENT,
     timestamp: new Date().toISOString(),
-    uptime: {
-      seconds: Math.floor(uptime),
-      formatted: formatUptime(uptime),
-    },
+    uptime: formatUptime(process.uptime()),
     memory: {
-      heapUsedMB: (memUsage.heapUsed / 1024 / 1024).toFixed(2),
-      heapTotalMB: (memUsage.heapTotal / 1024 / 1024).toFixed(2),
-      rssMB: (memUsage.rss / 1024 / 1024).toFixed(2),
-      externalMB: (memUsage.external / 1024 / 1024).toFixed(2),
-    },
-    cpu: {
-      userMicroseconds: cpuUsage.user,
-      systemMicroseconds: cpuUsage.system,
+      heapUsedMB: +(memUsage.heapUsed / 1024 / 1024).toFixed(2),
+      heapTotalMB: +(memUsage.heapTotal / 1024 / 1024).toFixed(2),
+      rssMB: +(memUsage.rss / 1024 / 1024).toFixed(2),
+      heapUtilization: +(memUsage.heapUsed / memUsage.heapTotal * 100).toFixed(1),
     },
     system: {
       platform: os.platform(),
       arch: os.arch(),
       nodeVersion: process.version,
-      hostname: os.hostname(),
-      loadAverage: os.loadavg(),
-      freeMemoryMB: (os.freemem() / 1024 / 1024).toFixed(2),
-      totalMemoryMB: (os.totalmem() / 1024 / 1024).toFixed(2),
+      cpuCount: os.cpus().length,
+      loadAvg1m: os.loadavg()[0],
+      freeMemoryMB: +(os.freemem() / 1024 / 1024).toFixed(0),
     },
   };
 }
 
 function formatUptime(seconds) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  const parts = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  parts.push(`${secs}s`);
-
-  return parts.join(' ');
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 }
 
-function checkDependencies(dependencies) {
+async function checkDependencies(dependencies) {
   const results = {};
 
-  for (const [name, checkFn] of Object.entries(dependencies)) {
+  const checks = Object.entries(dependencies).map(async ([name, checkFn]) => {
+    const start = Date.now();
     try {
-      const start = Date.now();
-      const result = checkFn();
-      const latencyMs = Date.now() - start;
-      results[name] = { status: 'ok', latencyMs };
+      await Promise.resolve(checkFn());
+      results[name] = { status: 'ok', latencyMs: Date.now() - start };
     } catch (err) {
-      results[name] = { status: 'error', message: err.message };
+      results[name] = { status: 'error', latencyMs: Date.now() - start, message: err.message };
     }
-  }
+  });
 
-  const allHealthy = Object.values(results).every(r => r.status === 'ok');
-  return { healthy: allHealthy, dependencies: results };
+  await Promise.allSettled(checks);
+
+  const healthy = Object.values(results).every(r => r.status === 'ok');
+  const degraded = Object.values(results).some(r => r.status === 'ok');
+
+  return {
+    status: healthy ? 'healthy' : degraded ? 'degraded' : 'unhealthy',
+    dependencies: results,
+  };
 }
 
 module.exports = { getSystemHealth, formatUptime, checkDependencies };
