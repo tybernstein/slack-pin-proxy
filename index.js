@@ -112,7 +112,36 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Slack proxy running on port ${PORT}`);
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = parseInt(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS || '10000', 10);
+
+const server = app.listen(PORT, () => {
+  console.log(`Slack proxy running on port ${PORT} (pid: ${process.pid})`);
   console.log(`Health check: http://localhost:${PORT}/health`);
 });
+
+async function gracefulShutdown(signal) {
+  console.log(`Received ${signal}, starting graceful shutdown...`);
+
+  const forceExit = setTimeout(() => {
+    console.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    console.log('Server closed, all connections drained');
+  } catch (err) {
+    console.error('Error during shutdown:', err.message);
+  } finally {
+    clearTimeout(forceExit);
+    process.exit(0);
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

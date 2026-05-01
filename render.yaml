@@ -1,8 +1,16 @@
 services:
   - type: web
     name: slack-pin-proxy
-    env: node
+    runtime: node
     plan: free
     buildCommand: "npm install"
     startCommand: "npm start"
     autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: ZAPIER_WEBHOOK_URL
+        sync: false
