@@ -1,7 +1,11 @@
 import express from 'express';
 import axios from 'axios';
 import crypto from 'crypto';
+import { createRequire } from 'module';
 import { rateLimiter, validateSlackRequest, requestLogger } from './middleware.js';
+
+const require = createRequire(import.meta.url);
+const { withRetry } = require('./retry.js');
 
 const app = express();
 
@@ -79,7 +83,7 @@ app.post('/slack/events', rateLimiter, validateSlackRequest, async (req, res) =>
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    await axios.post(ZAPIER_WEBHOOK_URL, {
+    await withRetry(() => axios.post(ZAPIER_WEBHOOK_URL, {
       ...req.body,
       _proxy_metadata: {
         receivedAt: new Date().toISOString(),
@@ -89,6 +93,8 @@ app.post('/slack/events', rateLimiter, validateSlackRequest, async (req, res) =>
     }, {
       signal: controller.signal,
       timeout: REQUEST_TIMEOUT_MS,
+    }), {
+      shouldRetry: (err) => err.code !== 'ECONNABORTED' && err.name !== 'AbortError',
     });
 
     clearTimeout(timeout);
