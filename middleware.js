@@ -1,6 +1,16 @@
 const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
 const MAX_REQUESTS_PER_WINDOW = parseInt(process.env.MAX_REQUESTS_PER_WINDOW || '100', 10);
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+const DEDUP_WINDOW_MS = parseInt(process.env.DEDUP_WINDOW_MS || '300000', 10);
+
+const processedEvents = new Map();
+
+setInterval(() => {
+  const cutoff = Date.now() - DEDUP_WINDOW_MS;
+  for (const [id, ts] of processedEvents.entries()) {
+    if (ts < cutoff) processedEvents.delete(id);
+  }
+}, CLEANUP_INTERVAL_MS);
 
 const requestCounts = new Map();
 
@@ -125,4 +135,22 @@ function corsMiddleware(allowedOrigins = []) {
   };
 }
 
-export { rateLimiter, validateSlackRequest, requestLogger, corsMiddleware };
+// BUG: accesses req.body.event.event_id without checking req.body.event first.
+// url_verification and other non-event_callback payloads have no .event field,
+// so this throws TypeError: Cannot read properties of undefined (reading 'event_id').
+function deduplicateEvent(req, res, next) {
+  const eventId = req.body.event.event_id;
+
+  if (!eventId) {
+    return next();
+  }
+
+  if (processedEvents.has(eventId)) {
+    return res.status(200).json({ ok: true, deduplicated: true });
+  }
+
+  processedEvents.set(eventId, Date.now());
+  next();
+}
+
+export { rateLimiter, validateSlackRequest, requestLogger, corsMiddleware, deduplicateEvent };

@@ -1,7 +1,7 @@
 import express from 'express';
 import axios from 'axios';
 import crypto from 'crypto';
-import { rateLimiter, validateSlackRequest, requestLogger } from './middleware.js';
+import { rateLimiter, validateSlackRequest, requestLogger, deduplicateEvent } from './middleware.js';
 
 const app = express();
 
@@ -58,7 +58,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.post('/slack/events', rateLimiter, validateSlackRequest, async (req, res) => {
+app.post('/slack/events', rateLimiter, validateSlackRequest, deduplicateEvent, async (req, res) => {
   requestCount++;
   const { type, challenge } = req.body;
 
